@@ -9,3 +9,4 @@ htmlcov/
 *.log
 .idea/
 .vscode/
+postgres_data/

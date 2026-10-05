@@ -11,11 +11,28 @@ on:
       - main
 
 jobs:
-
   test:
     name: Unit and API Tests
 
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: chatgpt_clone
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d chatgpt_clone"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       GROQ_API_KEY: XXYYZZ
@@ -34,6 +51,19 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Create test database
+        run: |
+          PGPASSWORD=ci_password psql \
+            -h localhost \
+            -U ci_user \
+            -d chatgpt_clone \
+            -c "CREATE DATABASE chatgpt_clone_test;"
+
+      - name: Run Alembic migrations
+        env:
+          ALEMBIC_DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone_test
+        run: alembic upgrade head
 
       - name: Run tests
         run: python -m pytest -q -m "not integration"
@@ -65,12 +95,8 @@ jobs:
     env:
       GROQ_API_KEY: XXYYZZ
       GROQ_MODEL: openai/gpt-oss-20b
-
       DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone
-
       TEST_DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone_test
-
-      ALEMBIC_DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone_test
 
     steps:
       - name: Checkout repository
@@ -93,6 +119,8 @@ jobs:
             -c "CREATE DATABASE chatgpt_clone_test;"
 
       - name: Run Alembic migrations
+        env:
+          ALEMBIC_DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone_test
         run: alembic upgrade head
 
       - name: Run database integration tests
