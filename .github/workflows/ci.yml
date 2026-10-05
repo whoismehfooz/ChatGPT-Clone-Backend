@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feature/project-core
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+
+  test:
+    name: Unit and API Tests
+
+    runs-on: ubuntu-latest
+
+    env:
+      GROQ_API_KEY: XXYYZZ
+      GROQ_MODEL: openai/gpt-oss-20b
+      DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone
+      TEST_DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone_test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -q -m "not integration"
+
+
+  integration:
+    name: Database Integration Tests
+
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: chatgpt_clone
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d chatgpt_clone"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      GROQ_API_KEY: XXYYZZ
+      GROQ_MODEL: openai/gpt-oss-20b
+
+      DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone
+
+      TEST_DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone_test
+
+      ALEMBIC_DATABASE_URL: postgresql+asyncpg://ci_user:ci_password@localhost:5432/chatgpt_clone_test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create test database
+        run: |
+          PGPASSWORD=ci_password psql \
+            -h localhost \
+            -U ci_user \
+            -d chatgpt_clone \
+            -c "CREATE DATABASE chatgpt_clone_test;"
+
+      - name: Run Alembic migrations
+        run: alembic upgrade head
+
+      - name: Run database integration tests
+        run: python -m pytest -q tests/integration/test_chat_flow.py
