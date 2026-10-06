@@ -141,15 +141,21 @@ jobs:
           POSTGRES_USER=ci_user
           POSTGRES_PASSWORD=ci_password
           POSTGRES_DB=chatgpt_clone
+
           APP_NAME=ChatGPT Clone
           APP_ENV=test
           DEBUG=false
+
           GROQ_API_KEY=XXYYZZ
           GROQ_MODEL=openai/gpt-oss-20b
+
           CHAT_CONTEXT_TOKEN_BUDGET=4096
           CHAT_SYSTEM_PROMPT=You are a helpful assistant.
           CHAT_MAX_OUTPUT_TOKENS=1024
           EOF
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config
 
       - name: Build Docker images
         run: docker compose build
@@ -160,17 +166,29 @@ jobs:
       - name: Show Docker services
         run: docker compose ps
 
-      - name: Check backend health
+      - name: Wait for backend
         run: |
-          curl --fail --retry 10 --retry-delay 5 \
+          curl --fail --retry 12 --retry-all-errors --retry-delay 5 \
             http://localhost:8000/health
 
-      - name: Check UI
+      - name: Verify backend health
         run: |
-          curl --fail --retry 10 --retry-delay 5 \
-            http://localhost:8501
+          test "$(docker inspect \
+            --format='{{.State.Health.Status}}' \
+            chatgpt-clone-app)" = "healthy"
 
-      - name: Show logs on failure
+      - name: Wait for Streamlit
+        run: |
+          curl --fail --retry 12 --retry-all-errors --retry-delay 5 \
+            http://localhost:8501/_stcore/health
+
+      - name: Verify UI health
+        run: |
+          test "$(docker inspect \
+            --format='{{.State.Health.Status}}' \
+            chatgpt-clone-ui)" = "healthy"
+
+      - name: Show Docker logs on failure
         if: failure()
         run: docker compose logs
 
