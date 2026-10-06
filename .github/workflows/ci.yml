@@ -125,3 +125,89 @@ jobs:
 
       - name: Run database integration tests
         run: python -m pytest -q tests/integration/test_chat_flow.py
+
+  docker:
+    name: Docker Build and Stack Test
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create CI environment
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_USER=ci_user
+          POSTGRES_PASSWORD=ci_password
+          POSTGRES_DB=chatgpt_clone
+
+          APP_NAME=ChatGPT Clone
+          APP_ENV=test
+          DEBUG=false
+
+          GROQ_API_KEY=XXYYZZ
+          GROQ_MODEL=openai/gpt-oss-20b
+
+          CHAT_CONTEXT_TOKEN_BUDGET=4096
+          CHAT_SYSTEM_PROMPT=You are a helpful assistant.
+          CHAT_MAX_OUTPUT_TOKENS=1024
+          EOF
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config
+
+      - name: Build Docker images
+        run: docker compose build
+
+      - name: Start Docker stack
+        run: docker compose up -d
+
+      - name: Show Docker services
+        run: docker compose ps
+
+      - name: Wait for backend
+        run: |
+          curl --fail --retry 12 --retry-all-errors --retry-delay 5 \
+            http://localhost:8000/health
+
+      - name: Verify backend health
+        run: |
+          test "$(docker inspect \
+            --format='{{.State.Health.Status}}' \
+            chatgpt-clone-app)" = "healthy"
+
+      - name: Wait for Streamlit
+        run: |
+          curl --fail --retry 12 --retry-all-errors --retry-delay 5 \
+            http://localhost:8501/_stcore/health
+
+      - name: Wait for UI health
+        run: |
+          for i in {1..12}; do
+            STATUS=$(docker inspect \
+              --format='{{.State.Health.Status}}' \
+              chatgpt-clone-ui)
+
+            echo "UI health status: $STATUS"
+
+            if [ "$STATUS" = "healthy" ]; then
+              exit 0
+            fi
+
+            if [ "$STATUS" = "unhealthy" ]; then
+              echo "UI container became unhealthy."
+              docker compose logs ui
+              exit 1
+            fi
+
+            sleep 5
+          done
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop Docker stack
+        if: always()
+        run: docker compose down -v
